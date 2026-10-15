@@ -90,6 +90,7 @@ void HmlgwComponent::loop() {
   this->handle_init();
   this->handle_keepalive();
 }
+
 void HmlgwComponent::reset() {
     unsigned char buf;
 
@@ -107,14 +108,6 @@ void HmlgwComponent::reset() {
         this->pin_reset_->digital_write(true);
     }
     detect_radio_module();
-}
-
-void HmlgwComponent::loop() {
-    this->cleanup();
-    this->read();
-    this->write();
-    this->handle_init();
-    this->handle_keepalive();
 }
 
 void HmlgwComponent::handle_init() {
@@ -159,8 +152,8 @@ void HmlgwComponent::cleanup() {
             this->need_init_ = true;
             this->reset();
         }
-  	}
-    
+    }
+
     last_client = std::partition(this->keepalive_clients_.begin(), this->keepalive_clients_.end(), discriminator);
     for (auto it = last_client; it != this->keepalive_clients_.end(); it++)
         ESP_LOGD(TAG, "Keepalive Client %s disconnected", (*it)->identifier.c_str());
@@ -194,7 +187,7 @@ int HmlgwComponent::read_bidcos_frame(char *buffer, int bufsize) {
     unsigned char *buf = (unsigned char *)buffer;
     char escapeValue = 0x00;
     bool haveLength = false;
-    
+
     while (count)
     {
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2021, 10, 0)
@@ -225,9 +218,9 @@ int HmlgwComponent::read_bidcos_frame(char *buffer, int bufsize) {
             // No sync at beginning? Not good...
             break;
         }
-        
+
         result += r;
-        
+
         if( *buf == 0xFC && result > 1 ) // escape byte
         {
             escaped++;
@@ -260,7 +253,7 @@ int HmlgwComponent::read_bidcos_frame(char *buffer, int bufsize) {
             ESP_LOGD(TAG, "readBidcosFrame done, msgLen %d result %d", msgLen, result );
             break;
         }
-        
+
         count -= r;
         buf+=r;
     }
@@ -274,7 +267,7 @@ void HmlgwComponent::read() {
     char buf[4096];
 
     if(this->stream_->available() > 0) {
-    	ESP_LOGD(TAG, "read from UART");
+        ESP_LOGD(TAG, "read from UART");
         int res = this->read_bidcos_frame(buf, sizeof(buf));
         if(res > 0) {
             HMFrame frame;
@@ -320,28 +313,28 @@ void HmlgwComponent::write() {
                 break;
             }
         }
-        
+
         if(pos == 0) {
-        	ESP_LOGD(TAG, "newline not found in buffer");
+            ESP_LOGD(TAG, "newline not found in buffer");
             return;
         }
-        
+
         if(sscanf((const char*)this->recv_buf_.data(), ">%x,%d", &index, &number) == 2) {
-        	ESP_LOGD(TAG, "index: %x, number: %d, message_count: %d", index, number, this->message_count_);
+            ESP_LOGD(TAG, "index: %x, number: %d, message_count: %d", index, number, this->message_count_);
             if(index == (int)this->message_count_ && number == 0) {
                 this->synced_ = true;
             }
             this->recv_buf_.erase(this->recv_buf_.begin(), this->recv_buf_.begin() + pos + 1);
         }
     }
-    
+
 }
 
 void HmlgwComponent::handle_keepalive() {
     size_t len;
     int pos = 0;
     char buf[128];
-    
+
     len = this->keepalive_recv_buf_.size();
     if(len == 0)
         return;
@@ -353,7 +346,7 @@ void HmlgwComponent::handle_keepalive() {
     }
     if(pos == 0)
         return;
-    
+
     if(this->keepalive_recv_buf_.at(0) == 'L' || this->keepalive_recv_buf_.at(0) == 'K') {
         int counter;
         if(1 == sscanf((const char*)&this->keepalive_recv_buf_.data()[1], "%x", &counter)) {
@@ -410,12 +403,12 @@ void HmlgwComponent::detect_radio_module() {
                 frame.dump();
             }
             if(
-                (frame.destination == HM_DST_HMSYSTEM && frame.command == HM_CMD_HMSYSTEM_ACK && frame.data_len == 11 && frame.data[0] == 2 && strncmp((char *)(frame.data + 1), "Co_CPU_App", 10) == 0) || 
+                (frame.destination == HM_DST_HMSYSTEM && frame.command == HM_CMD_HMSYSTEM_ACK && frame.data_len == 11 && frame.data[0] == 2 && strncmp((char *)(frame.data + 1), "Co_CPU_App", 10) == 0) ||
                 (frame.destination == HM_DST_HMSYSTEM && frame.command == 0 && frame.data_len == 10 && strncmp((char *)frame.data, "Co_CPU_App", 10) == 0)) {
                 break;
             }
             if(
-                (frame.destination == HM_DST_COMMON && frame.command == HM_CMD_COMMON_ACK && frame.data_len == 14 && frame.data[0] == 1 && strncmp((char *)(frame.data + 1), "DualCoPro_App", 13) == 0) || 
+                (frame.destination == HM_DST_COMMON && frame.command == HM_CMD_COMMON_ACK && frame.data_len == 14 && frame.data[0] == 1 && strncmp((char *)(frame.data + 1), "DualCoPro_App", 13) == 0) ||
                 (frame.destination == HM_DST_COMMON && frame.command == 0 && frame.data_len == 13 && strncmp((char *)frame.data, "DualCoPro_App", 13) == 0)
                 ) {
                 ESP_LOGE(TAG, "Unsupported Homematic Firmware. Please downgrade to HM-Only firmware!");
@@ -448,93 +441,3 @@ void HmlgwComponent::detect_radio_module() {
         HMFrame frame;
         if(!HMFrame::TryParse(buf, len, &frame)) {
             ESP_LOGE(TAG, "Error parsing frame");
-        } else {
-            ESP_LOGD(TAG, "Frame parsed successfully.");
-        }
-        frame.dump();
-    }
-
-    send_bidcos_frame(counter++, HM_DST_HMSYSTEM, HM_CMD_HMSYSTEM_GET_SERIAL, NULL, 0);
-    len = read_bidcos_frame_retries((char *)buf, 1024, 3);
-    if(len > 0) {
-        HMFrame frame;
-        if(!HMFrame::TryParse(buf, len, &frame)) {
-            ESP_LOGE(TAG, "Error parsing frame");
-            return;
-        }
-        std::string serial((const char*)frame.data + 1, frame.data_len - 1);
-        this->hm_serial_ = serial;
-        frame.dump();
-    }
-
-    this->module_ready_ = true;
-}
-
-void HmlgwComponent::send_bidcos_frame(uint8_t counter, uint8_t destination, uint8_t command, unsigned char *data, uint8_t data_len) {
-    HMFrame frame;
-    uint8_t buf[8 + data_len + 10];
-
-    frame.counter = counter;
-    frame.destination = destination;
-    frame.command = command;
-    frame.data = data;
-    frame.data_len = data_len;
-    uint16_t len = frame.encode(buf, sizeof(buf), true);
-
-    std::string logstr = format_hex(buf, len);
-    ESP_LOGD(TAG, "Sending HM frame: %s", logstr.c_str());
-
-#if ESPHOME_VERSION_CODE >= VERSION_CODE(2021, 10, 0)
-    this->stream_->write_array(buf, len);
-#else
-    this->stream_->write(buf, len);
-#endif
-}
-
-void HmlgwComponent::dump_config() {
-  ESP_LOGCONFIG(TAG, "HMLGW Server:");
-  ESP_LOGCONFIG(TAG, "  Port: %u", this->port_);
-  ESP_LOGCONFIG(TAG, "  KeepAlive Port: %u", this->keepalive_port_);
-}
-
-void HmlgwComponent::on_shutdown() {
-    for (auto &client : this->clients_)
-        client->tcp_client->close(true);
-    for (auto &client : this->keepalive_clients_)
-        client->tcp_client->close(true);
-}
-
-static std::string hmlgw_remote_ip(AsyncClient *c) {
-  ip4_addr_t a = c->getRemoteAddress4();
-  char buf[16];
-  ip4addr_ntoa_r(&a, buf, sizeof(buf));
-  return std::string(buf);
-}
-
-HmlgwComponent::Client::Client(AsyncClient *client, std::vector<uint8_t> &recv_buf) :
-        tcp_client{client}, identifier{hmlgw_remote_ip(client)}, disconnected{false} {
-    ESP_LOGD(TAG, "New client connected from %s", this->identifier.c_str());
-
-    this->tcp_client->onError(     [this](void *h, AsyncClient *client, int8_t error)  { this->disconnected = true; });
-    this->tcp_client->onDisconnect([this](void *h, AsyncClient *client)                { this->disconnected = true; });
-    this->tcp_client->onTimeout(   [this](void *h, AsyncClient *client, uint32_t time) { this->disconnected = true; });
-
-    this->tcp_client->onData([&](void *h, AsyncClient *client, void *data, size_t len) {
-        if (len == 0 || data == nullptr)
-            return;
-
-        auto buf = static_cast<uint8_t *>(data);
-        recv_buf.insert(recv_buf.end(), buf, buf + len);
-    }, nullptr);
-    // This delay seems to be required for Homegear to ensure that reconnections
-    // work properly - might be required for thread set up.
-    delay(100);
-}
-
-HmlgwComponent::Client::~Client() {
-    delete this->tcp_client;
-}
-
-} // hmlgw
-} // esphome
-
