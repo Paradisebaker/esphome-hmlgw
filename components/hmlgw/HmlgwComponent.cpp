@@ -36,39 +36,60 @@ static const char *g_productString = "01,Revilo-HM-LGW," VERSION ",%s\r\n";
 using namespace esphome;
 
 void HmlgwComponent::setup() {
-    ESP_LOGCONFIG(TAG, "Setting up HMLGW server...");
-    this->recv_buf_.reserve(128);
-    this->keepalive_recv_buf_.reserve(128);
-    
-    if(this->pin_reset_) {
-    	ESP_LOGD(TAG, "Resetting HM module");
-        this->pin_reset_->setup();
-        this->reset();
-    } else {
-        detect_radio_module();
-    }
-
-    if(this->module_ready_) {
-        this->server_ = AsyncServer(this->port_);
-        this->keepalive_server_ = AsyncServer(this->keepalive_port_);
-        this->server_.begin();
-        this->keepalive_server_.begin();
-        this->server_.onClient([this](void *h, AsyncClient *tcpClient) {
-            if(tcpClient == nullptr)
-                return;
-
-            this->clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->recv_buf_)));
-        }, this);
-
-        this->keepalive_server_.onClient([this](void *h, AsyncClient *tcpClient) {
-            if(tcpClient == nullptr)
-                return;
-
-            this->keepalive_clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->keepalive_recv_buf_)));
-        }, this);
-    }
+  ESP_LOGCONFIG(TAG, "Setting up HMLGW server...");
+  this->recv_buf_.reserve(128);
+  this->keepalive_recv_buf_.reserve(128);
+  if (this->pin_reset_) {
+    this->pin_reset_->setup();
+  }
 }
 
+void HmlgwComponent::loop() {
+  static bool started = false;
+  static bool tried = false;
+  static uint32_t last_try = 0;
+  if (!started) {
+    if (tried && millis() - last_try < 5000)
+      return;
+    tried = true;
+    last_try = millis();
+    uint8_t discard;
+    while (this->stream_->available() > 0) {
+      this->stream_->read_array(&discard, 1);
+    }
+    if (this->pin_reset_) {
+      this->reset();
+    } else {
+      this->detect_radio_module();
+    }
+    if (!this->module_ready_) {
+      ESP_LOGW(TAG, "HM module not ready, retrying in 5 s");
+      return;
+    }
+    ESP_LOGI(TAG, "HM module ready, starting servers");
+    this->server_ = AsyncServer(this->port_);
+    this->keepalive_server_ = AsyncServer(this->keepalive_port_);
+    this->server_.begin();
+    this->keepalive_server_.begin();
+    this->server_.onClient([this](void *h, AsyncClient *tcpClient) {
+      if (tcpClient == nullptr)
+        return;
+      this->clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->recv_buf_)));
+    }, this);
+    this->keepalive_server_.onClient([this](void *h, AsyncClient *tcpClient) {
+      if (tcpClient == nullptr)
+        return;
+      this->keepalive_clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->keepalive_recv_buf_)));
+    }, this);
+    started = true;
+    return;
+  }
+  this->cleanup();
+  this->read();
+  this->write();
+  this->handle_init();
+  this->handle_keepalive();
+}
 void HmlgwComponent::reset() {
     unsigned char buf;
 
