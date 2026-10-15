@@ -483,8 +483,15 @@ void HmlgwComponent::on_shutdown() {
         client->tcp_client->close(true);
 }
 
+static std::string hmlgw_remote_ip(AsyncClient *c) {
+  ip4_addr_t a = c->getRemoteAddress4();
+  char buf[16];
+  ip4addr_ntoa_r(&a, buf, sizeof(buf));
+  return std::string(buf);
+}
+
 HmlgwComponent::Client::Client(AsyncClient *client, std::vector<uint8_t> &recv_buf) :
-        tcp_client{client}, identifier{client->remoteIP().toString().c_str()}, disconnected{false} {
+        tcp_client{client}, identifier{hmlgw_remote_ip(client)}, disconnected{false} {
     ESP_LOGD(TAG, "New client connected from %s", this->identifier.c_str());
 
     this->tcp_client->onError(     [this](void *h, AsyncClient *client, int8_t error)  { this->disconnected = true; });
