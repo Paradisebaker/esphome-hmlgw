@@ -441,3 +441,92 @@ void HmlgwComponent::detect_radio_module() {
         HMFrame frame;
         if(!HMFrame::TryParse(buf, len, &frame)) {
             ESP_LOGE(TAG, "Error parsing frame");
+        } else {
+            ESP_LOGD(TAG, "Frame parsed successfully.");
+        }
+        frame.dump();
+    }
+
+    send_bidcos_frame(counter++, HM_DST_HMSYSTEM, HM_CMD_HMSYSTEM_GET_SERIAL, NULL, 0);
+    len = read_bidcos_frame_retries((char *)buf, 1024, 3);
+    if(len > 0) {
+        HMFrame frame;
+        if(!HMFrame::TryParse(buf, len, &frame)) {
+            ESP_LOGE(TAG, "Error parsing frame");
+            return;
+        }
+        std::string serial((const char*)frame.data + 1, frame.data_len - 1);
+        this->hm_serial_ = serial;
+        frame.dump();
+    }
+
+    this->module_ready_ = true;
+}
+
+void HmlgwComponent::send_bidcos_frame(uint8_t counter, uint8_t destination, uint8_t command, unsigned char *data, uint8_t data_len) {
+    HMFrame frame;
+    uint8_t buf[8 + data_len + 10];
+
+    frame.counter = counter;
+    frame.destination = destination;
+    frame.command = command;
+    frame.data = data;
+    frame.data_len = data_len;
+    uint16_t len = frame.encode(buf, sizeof(buf), true);
+
+    std::string logstr = format_hex(buf, len);
+    ESP_LOGD(TAG, "Sending HM frame: %s", logstr.c_str());
+
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2021, 10, 0)
+    this->stream_->write_array(buf, len);
+#else
+    this->stream_->write(buf, len);
+#endif
+}
+
+void HmlgwComponent::dump_config() {
+  ESP_LOGCONFIG(TAG, "HMLGW Server:");
+  ESP_LOGCONFIG(TAG, "  Port: %u", this->port_);
+  ESP_LOGCONFIG(TAG, "  KeepAlive Port: %u", this->keepalive_port_);
+}
+
+void HmlgwComponent::on_shutdown() {
+    for (auto &client : this->clients_)
+        client->tcp_client->close(true);
+    for (auto &client : this->keepalive_clients_)
+        client->tcp_client->close(true);
+}
+
+static std::string hmlgw_remote_ip(AsyncClient *c) {
+  ip4_addr_t a = c->getRemoteAddress4();
+  char buf[16];
+  ip4addr_ntoa_r(&a, buf, sizeof(buf));
+  return std::string(buf);
+}
+
+HmlgwComponent::Client::Client(AsyncClient *client, std::vector<uint8_t> &recv_buf) :
+        tcp_client{client}, identifier{hmlgw_remote_ip(client)}, disconnected{false} {
+    ESP_LOGD(TAG, "New client connected from %s", this->identifier.c_str());
+
+    this->tcp_client->onError(     [this](void *h, AsyncClient *client, int8_t error)  { this->disconnected = true; });
+    this->tcp_client->onDisconnect([this](void *h, AsyncClient *client)                { this->disconnected = true; });
+    this->tcp_client->onTimeout(   [this](void *h, AsyncClient *client, uint32_t time) { this->disconnected = true; });
+
+    this->tcp_client->onData([&](void *h, AsyncClient *client, void *data, size_t len) {
+        if (len == 0 || data == nullptr)
+            return;
+
+        auto buf = static_cast<uint8_t *>(data);
+        recv_buf.insert(recv_buf.end(), buf, buf + len);
+    }, nullptr);
+    // This delay seems to be required for Homegear to ensure that reconnections
+    // work properly - might be required for thread set up.
+    delay(100);
+}
+
+HmlgwComponent::Client::~Client() {
+    delete this->tcp_client;
+}
+
+} // hmlgw
+} // esphome
