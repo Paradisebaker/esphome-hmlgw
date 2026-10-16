@@ -369,13 +369,22 @@ void HmlgwComponent::handle_keepalive() {
 }
 
 void HmlgwComponent::detect_radio_module() {
-    uint8_t counter = 0;
+    uint8_t counter = 1;  // like FHEM's HMUARTLGW, which never uses counter 0 for the first frame
     unsigned char buf[1024];
     uint8_t len;
     int timeout = 10;
 
-    send_bidcos_frame(counter++, HM_DST_COMMON, HM_CMD_COMMON_IDENTIFY, NULL, 0);
+    // Legacy (HM-only) co-processor firmware only answers the OS identify
+    // (destination 0x00) and ignores the COMMON identify (destination 0xFE).
+    // So ask the OS first, as FHEM does, and only fall back to COMMON for
+    // modules that did not answer (dual co-processor firmware).
+    send_bidcos_frame(counter++, HM_DST_HMSYSTEM, HM_CMD_HMSYSTEM_IDENTIFY, NULL, 0);
     len = read_bidcos_frame_retries((char *)buf, 1024, 3);
+    if(len == 0) {
+        ESP_LOGD(TAG, "No answer to OS identify, trying COMMON identify");
+        send_bidcos_frame(counter++, HM_DST_COMMON, HM_CMD_COMMON_IDENTIFY, NULL, 0);
+        len = read_bidcos_frame_retries((char *)buf, 1024, 3);
+    }
     HMFrame frame;
     if(len > 0) {
         if(!HMFrame::TryParse(buf, len, &frame)) {
