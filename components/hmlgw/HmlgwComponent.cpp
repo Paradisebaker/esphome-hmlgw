@@ -271,8 +271,12 @@ void HmlgwComponent::read() {
         int res = this->read_bidcos_frame(buf, sizeof(buf));
         if(res > 0) {
             HMFrame frame;
-            HMFrame::TryParse((unsigned char *)buf, res, &frame);
-            frame.dump();
+            // The raw buffer still contains 0xFC escape bytes if the frame had any, so TryParse
+            // fails for those. Only dump a frame that parsed; frame.data is not valid otherwise.
+            if(HMFrame::TryParse((unsigned char *)buf, res, &frame))
+                frame.dump();
+            else
+                ESP_LOGD(TAG, "Frame with escape bytes or bad CRC (%d bytes), forwarding raw", res);
         }
         if(res > 0 && this->synced_) {
             for(auto const& client : this->clients_)
