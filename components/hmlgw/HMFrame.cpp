@@ -76,7 +76,7 @@ bool HMFrame::TryParse(unsigned char *buffer, uint16_t len, HMFrame *frame)
     return true;
 }
 
-HMFrame::HMFrame() : data_len(0)
+HMFrame::HMFrame() : counter(0), destination(0), command(0), data(nullptr), data_len(0)
 {
 }
 
@@ -121,6 +121,11 @@ uint16_t HMFrame::encode(unsigned char *buffer, uint16_t len, bool escaped)
 
 void HMFrame::dump()
 {
+    if (data == nullptr)
+    {
+        ESP_LOGD(TAG, "HM Frame without valid data");
+        return;
+    }
     std::string datastr = format_hex(data, data_len);
     ESP_LOGD(TAG, "HM Frame, Counter: %d, Destination: %x, Command: %x, Data Length: %d, Data: %s", counter, destination, command, data_len, datastr.c_str());
 
